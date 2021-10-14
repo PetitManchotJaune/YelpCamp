@@ -2,7 +2,9 @@ const express = require('express');
 const path = require('path');
 const mongoose = require('mongoose');
 const ejsMate = require('ejs-mate');
+// JOI is a schema description language and data validator for Javascript.
 const Joi = require('joi');
+const { campgroundSchema } = require('./schemas.js');
 const catchAsync = require('./utils/catchAsync');
 const ExpressError = require('./utils/ExpressError');
 const methodOverride = require('method-override');
@@ -29,6 +31,18 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(methodOverride('_method'));
 
+const validateCampground = (req, res, next) => {
+    // We validate with 'req.body':
+    const { error } = campgroundSchema.validate(req.body);
+    if (error) {
+        // We are mapping through 'error.details' because 'details' is an an array of objects, and then we make a single string message:
+        const msg = error.details.map(el => el.message).join(',');
+        throw new ExpressError(msg, 400);
+    } else {
+        next();
+    }
+}
+
 app.get('/', (req, res) => {
     res.render('home');
 })
@@ -45,27 +59,10 @@ app.get('/campgrounds/new', async (req, res) => {
 })
 
 // Create a new campground
-app.post('/campgrounds', catchAsync(async (req, res) => {
+app.post('/campgrounds', validateCampground, catchAsync(async (req, res) => {
     // This is a logic to see if 'req.body' contains campground at all:
     // if (!req.body.campground) throw new ExpressError('Invalid Campground Data', 400);
 
-    // This is going to validate our data before it even attempt to save it with Mongoose:
-    const campgroundSchema = Joi.object({
-        // We are expecting this to be an object and also to be required:
-        campground: Joi.object({
-            title: Joi.string().required(),
-            image: Joi.string().required(),
-            price: Joi.number().required().min(0),
-            description: Joi.string().required(),
-            location: Joi.string().required()
-        }).required()
-    })
-    const { error } = campgroundSchema.validate(req.body);
-    // We are mapping through 'error.details' because 'details' is an an array of objects:
-    const msg = error.details.map(el => el.message).join(',');
-    if (error) {
-        throw new ExpressError(msg, 400);
-    }
     const campground = new Campground(req.body.campground);
     await campground.save();
     res.redirect(`/campgrounds/${campground._id}`);
@@ -84,7 +81,7 @@ app.get('/campgrounds/:id/edit', catchAsync(async (req, res) => {
 }))
 
 // Update a campground
-app.put('/campgrounds/:id', catchAsync(async (req, res) => {
+app.put('/campgrounds/:id', validateCampground, catchAsync(async (req, res) => {
     const { id } = req.params;
     const campground = await Campground.findByIdAndUpdate(id, { ...req.body.campground });
     res.redirect(`/campgrounds/${campground._id}`);
@@ -110,5 +107,3 @@ app.use((err, req, res, next) => {
 app.listen(3000, () => {
     console.log('Serving on port 3000');
 })
-
-// JOI is a schema description language and data validator for Javascript
